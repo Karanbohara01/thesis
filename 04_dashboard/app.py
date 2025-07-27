@@ -273,10 +273,6 @@ if customer_df is not None and transaction_df is not None:
 
 
 
-
-
-    
-
     # --- STRATEGIC OVERVIEW: CHURN RISK VS. SEGMENT VALUE ---
     st.subheader("Which Segments are Most Valuable to Save?")
 
@@ -341,7 +337,6 @@ if customer_df is not None and transaction_df is not None:
 
     # --- ENHANCED SEGMENTED RETENTION ANALYSIS ---
     st.subheader("Retention by Customer Segment")
-    
     # Data preparation
     chart_df = customer_df.copy()
     chart_df['Status'] = np.where(chart_df['Churn_Status'] == 0, 'Retained', 'Churned')
@@ -463,7 +458,7 @@ if customer_df is not None and transaction_df is not None:
     
     # --- PERFORMANCE TRENDS & DEEP DIVES ---
     st.header("Performance Trends & Deep Dives")
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Customer Lifecycle", "Sales & Products", "Geographical Performance","Churn Drivers & Demographics","Churn Drivers"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Customer Lifecycle", "Sales & Products", "Geographical Performance","Churn Drivers & Demographics","Churn Drivers","Attrition Analysis"])
     
     with tab1:
         st.subheader("Monthly Customer Acquisition vs. Churn")
@@ -741,7 +736,7 @@ with tab4:
     st.header("🤔 Churn Drivers & Demographic Insights")
     st.info("This section breaks down churn by key customer attributes to understand who is most likely to leave.")
 
-    col1, col2 = st.columns(2)
+    col1, col2 ,col3= st.columns(3)
 
     # --- Insight 1: Churn Rate by Segment ---
     with col1:
@@ -817,6 +812,9 @@ with tab4:
         hide_index=True, 
         use_container_width=True
     )
+    
+
+    
 with tab5:
         # =============================================================================
     # --- TAB 5: Churn Drivers ---
@@ -902,6 +900,205 @@ with tab5:
     """)
 
 
+
+with tab6:
+    
+    st.header("📈 Dynamic Attrition Trend Analysis")
+    st.markdown("Analyze the trend of churned customers over different time periods with advanced insights.")
+
+    # --- 1. Period Selector ---
+    period_options = {'Daily': 'D', 'Weekly': 'W', 'Monthly': 'ME', 'Quarterly': 'QE'}
+    selected_period_label = st.radio(
+        "Select Analysis Period:",
+        options=list(period_options.keys()),
+        horizontal=True,
+        index=2  # Default to Monthly
+    )
+    period_code = period_options[selected_period_label]
+
+    # --- 2. Data Preparation ---
+    # Ensure Churn_Date is in datetime format
+    customer_df['Churn_Date'] = pd.to_datetime(customer_df['Churn_Date'])
+
+    # Filter for churned customers and resample based on selected period
+    churn_trend_df = customer_df[customer_df['Churn_Status'] == 1].set_index('Churn_Date')
+    attrition_df = churn_trend_df.resample(period_code)['Customer ID'].nunique().reset_index()
+    attrition_df.rename(columns={'Customer ID': 'Churned Customers'}, inplace=True)
+    
+    # Calculate moving average (3-period) for trend smoothing
+    attrition_df['3-Period MA'] = attrition_df['Churned Customers'].rolling(window=3, min_periods=1).mean()
+    
+    # Calculate percentage change
+    attrition_df['Pct Change'] = attrition_df['Churned Customers'].pct_change() * 100
+
+    # --- 3. KPI Cards ---
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        # Current period churn
+        current_churn = attrition_df['Churned Customers'].iloc[-1] if not attrition_df.empty else 0
+        st.metric(
+            label=f"Current {selected_period_label} Churn",
+            value=f"{current_churn:,.0f}",
+            help="Number of customers churned in the most recent period"
+        )
+    
+    with col2:
+        # Average churn
+        avg_churn = attrition_df['Churned Customers'].mean()
+        diff_from_avg = current_churn - avg_churn
+        st.metric(
+            label=f"Average {selected_period_label} Churn",
+            value=f"{avg_churn:,.1f}",
+            delta=f"{diff_from_avg:+,.1f} vs current",
+            delta_color="inverse",
+            help="How current churn compares to historical average"
+        )
+    
+    with col3:
+        # Percentage change
+        if len(attrition_df) >= 2:
+            pct_change = attrition_df['Pct Change'].iloc[-1]
+            st.metric(
+                label="Change from Previous Period",
+                value=f"{pct_change:+.1f}%",
+                help="Percentage change from previous period"
+            )
+        else:
+            st.metric(
+                label="Change from Previous Period",
+                value="N/A",
+                help="Insufficient data for comparison"
+            )
+    
+    st.markdown("---")
+
+    # --- 4. Enhanced Visualization ---
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    # Bar chart for actual churn numbers
+    fig.add_trace(
+        go.Bar(
+            x=attrition_df['Churn_Date'],
+            y=attrition_df['Churned Customers'],
+            name='Churned Customers',
+            marker_color='indianred',
+            opacity=0.7,
+            text=attrition_df['Churned Customers'],
+            texttemplate='%{text:,.0f}',
+            textposition='outside'
+        ),
+        secondary_y=False
+    )
+    
+    # Line for moving average
+    fig.add_trace(
+        go.Scatter(
+            x=attrition_df['Churn_Date'],
+            y=attrition_df['3-Period MA'],
+            name='3-Period Moving Avg',
+            line=dict(color='royalblue', width=3),
+            mode='lines+markers'
+        ),
+        secondary_y=False
+    )
+    
+    # Line for percentage change (on secondary axis)
+    if len(attrition_df) > 1:
+        fig.add_trace(
+            go.Scatter(
+                x=attrition_df['Churn_Date'],
+                y=attrition_df['Pct Change'],
+                name='% Change',
+                line=dict(color='green', width=2, dash='dot'),
+                mode='lines+markers'
+            ),
+            secondary_y=True
+        )
+    
+    # Add reference lines and annotations
+    fig.add_hline(
+        y=avg_churn, 
+        line_dash="dash",
+        line_color="orange",
+        annotation_text=f"Avg: {avg_churn:,.1f}", 
+        annotation_position="bottom right"
+    )
+    
+    # Highlight peaks and troughs
+    max_val = attrition_df['Churned Customers'].max()
+    min_val = attrition_df['Churned Customers'].min()
+    
+    fig.add_annotation(
+        x=attrition_df.loc[attrition_df['Churned Customers'] == max_val, 'Churn_Date'].values[0],
+        y=max_val,
+        text=f"Peak: {max_val}",
+        showarrow=True,
+        arrowhead=1,
+        ax=0,
+        ay=-40
+    )
+    
+    if min_val != max_val:  # Only show if not all values are equal
+        fig.add_annotation(
+            x=attrition_df.loc[attrition_df['Churned Customers'] == min_val, 'Churn_Date'].values[0],
+            y=min_val,
+            text=f"Low: {min_val}",
+            showarrow=True,
+            arrowhead=1,
+            ax=0,
+            ay=40
+        )
+    
+    # Style the chart
+    fig.update_layout(
+        title=f"{selected_period_label} Attrition Trend with Moving Average and % Change",
+        xaxis_title="Time Period",
+        yaxis_title="Number of Churned Customers",
+        yaxis2_title="Percentage Change",
+        plot_bgcolor='rgba(245, 245, 245, 1)',
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    
+    fig.update_yaxes(title_text="<b>Customers</b>", secondary_y=False)
+    fig.update_yaxes(title_text="<b>% Change</b>", secondary_y=True)
+    
+    # Display the chart
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # --- 5. Additional Insights Section ---
+    st.markdown("---")
+    st.subheader("📊 Key Insights")
+    
+    if len(attrition_df) > 1:
+        # Calculate trend metrics
+        last_3_periods = attrition_df['Churned Customers'].iloc[-3:].mean()
+        prev_3_periods = attrition_df['Churned Customers'].iloc[-6:-3].mean() if len(attrition_df) >= 6 else None
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("**Trend Analysis**")
+            if len(attrition_df) >= 3:
+                trend_direction = "increasing" if attrition_df['3-Period MA'].iloc[-1] > attrition_df['3-Period MA'].iloc[-2] else "decreasing"
+                st.write(f"- The {trend_direction} trend based on 3-period moving average")
+            
+            if prev_3_periods is not None:
+                recent_comparison = "higher" if last_3_periods > prev_3_periods else "lower"
+                st.write(f"- Recent 3 periods are {recent_comparison} than previous 3 periods")
+            
+            st.write(f"- Highest churn: {max_val} on {attrition_df.loc[attrition_df['Churned Customers'] == max_val, 'Churn_Date'].dt.strftime('%Y-%m-%d').values[0]}")
+            st.write(f"- Lowest churn: {min_val} on {attrition_df.loc[attrition_df['Churned Customers'] == min_val, 'Churn_Date'].dt.strftime('%Y-%m-%d').values[0]}")
+        
+        with col2:
+            st.markdown("**Statistical Summary**")
+            st.write(f"- Average churn: {avg_churn:,.1f} customers per period")
+            st.write(f"- Standard deviation: {attrition_df['Churned Customers'].std():,.1f}")
+            st.write(f"- Coefficient of variation: {(attrition_df['Churned Customers'].std() / avg_churn * 100):.1f}%")
+            st.write(f"- Total churned customers shown: {attrition_df['Churned Customers'].sum():,.0f}")
+    else:
+        st.warning("Insufficient data for detailed insights. More periods needed.")
 
 
 # Add custom CSS for better styling

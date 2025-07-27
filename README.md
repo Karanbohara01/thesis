@@ -1,0 +1,1 @@
+streamlit run 04_dashboard/app.py
